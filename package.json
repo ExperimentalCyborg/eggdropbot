@@ -1,0 +1,26 @@
+{
+  "name": "eggdropbot",
+  "version": "1.0.0",
+  "description": "For the William Osman public discord server",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ExperimentalCyborg/eggdropbot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ExperimentalCyborg/eggdropbot/issues"
+  },
+  "homepage": "https://github.com/ExperimentalCyborg/eggdropbot#readme",
+  "dependencies": {
+    "@discordjs/builders": "^0.13.0",
+    "@discordjs/rest": "^0.4.1",
+    "discord-api-types": "^0.32.1",
+    "discord.js": "^13.6.0"
+  }
+}
