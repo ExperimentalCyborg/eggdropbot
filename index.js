@@ -23,11 +23,13 @@ const {
     vote_emoji 
 } = require('./config.json');
 
-// Global constants
+
+// Global variables
 const database = new Database();
 const client = new Client({ 
     'intents': [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MESSAGE_REACTIONS],
     'partials': ['MESSAGE', 'REACTION'] });
+let message_ignore_list = {};
 
 
 // === CORE ===
@@ -194,6 +196,7 @@ async function cmd_submit(interaction){
     // Remove old submissions if any
     let messageId = await database.removeByUser(interaction.member.id);
     if(messageId){
+		message_ignore_list[messageId] = true;
         await interaction.channel.messages.delete(messageId);
     }
 
@@ -358,6 +361,11 @@ client.on('messageDelete', async message => { // When a user's latest submission
     if(message.channelId != submission_channel){
         return;
     }
+
+	if(message.id in message_ignore_list){ // Already replaced with a new submission
+		delete message_ignore_list[message.id];
+		return;
+	}
     
     let userId = await database.removeByMessage(message.id);
     if(!userId){
@@ -383,7 +391,6 @@ client.on('messageReactionAdd', async reaction => { // todo
     }
 
     if (reaction.emoji.toString() != vote_emoji){
-        console.log(`not an ${vote_emoji}, but a ${reaction.emoji}`);
         return;
     }
     
@@ -401,7 +408,6 @@ client.on('messageReactionRemove', async reaction => { // todo
     }
 
     if (reaction.emoji.toString() != vote_emoji){
-        console.log(`not an ${vote_emoji}, but a ${reaction.emoji}`);
         return;
     }
     
