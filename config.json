@@ -1,0 +1,10 @@
+{
+    "db_path": "./database.sqlite",
+    "token": "DISCORD_BOT_TOKEN",
+    "clientId": "DISCORD_BOT_CLIENT_ID",
+    "unsplash_key": "PUBLIC_API_KEY",
+    "guildId": "GUILD_ID",
+    "submission_channel": "CHANNEL_ID",
+    "eggspell_role": "ROLE_ID",
+    "contestant_role": "ROLE_ID"
+}
