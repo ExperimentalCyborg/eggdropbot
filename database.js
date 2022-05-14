@@ -14,7 +14,7 @@ module.exports = class Database {
     // Create the tables if they don't exist yet
     async check_structure() {
         await run(this.db, "SELECT * FROM `submissions` LIMIT 1;").catch(async () => {
-            await run(this.db, "CREATE TABLE `submissions` (`userId` TEXT NOT NULL, `userName` TEXT, `url` TEXT NOT NULL, `messageId` TEXT NOT NULL, `timestamp` INTEGER, PRIMARY KEY (`userId`));");
+            await run(this.db, "CREATE TABLE `submissions` (`userId` TEXT NOT NULL, `userName` TEXT, `url` TEXT NOT NULL, `userVotes` INTEGER, `messageId` TEXT NOT NULL, `timestamp` INTEGER, PRIMARY KEY (`userId`));");
         });
 
         await run(this.db, "SELECT * FROM `settings` LIMIT 1;").catch(async () => {
@@ -48,8 +48,16 @@ module.exports = class Database {
     }
 
     async addSubmission(userId, userName, url, messageId, timestamp){
-        let query = "INSERT OR REPLACE INTO submissions(`userId`, `userName`, `url`, `messageId`, `timestamp`) VALUES(?, ?, ?, ?, ?);";
-        await run(this.db, query, [userId, userName, url, messageId, timestamp]);
+        let query = "INSERT OR REPLACE INTO submissions(`userId`, `userName`, `url`, `userVotes`, `messageId`, `timestamp`) VALUES(?, ?, ?, ?, ?, ?);";
+        await run(this.db, query, [userId, userName, url, 0, messageId, timestamp]);
+    }
+
+    async upvote(messageId){
+        await run(this.db, "UPDATE submissions SET `userVotes` = `userVotes` + 1 WHERE `messageId` = ?", [messageId]);
+    }
+
+    async downvote(messageId){
+        await run(this.db, "UPDATE submissions SET `userVotes` = `userVotes` - 1 WHERE `messageId` = ?", [messageId]);
     }
 
     async removeByUser(userId){ // returns message associated with the last submission
