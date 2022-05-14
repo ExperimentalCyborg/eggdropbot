@@ -1,14 +1,23 @@
+// === IMPORTS & GLOBALS ===
+
+// Node internals
 const { Buffer } = require('node:buffer');
+
+// DiscordJS stuff
 const { Client, Intents, Permissions, MessageAttachment} = require('discord.js');
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord-api-types/v9');
+
+// Project resources
 const Database = require('./database.js');
-const { db_path, clientId, guildId, token, unsplash_key, submission_channel, eggspell_role, contestant_role } = require('./config.json');
+const { db_path, clientId, guildId, token, unsplash_key, submission_channel, eggspell_role, contestant_role, vote_emoji } = require('./config.json');
 
-const client = new Client({ intents: [Intents.FLAGS.GUILDS] });
+// Global constants
 const database = new Database();
-
+const client = new Client({ 
+    'intents': [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MESSAGE_REACTIONS],
+    'partials': ['MESSAGE', 'REACTION'] });
 
 
 // === CORE ===
@@ -27,7 +36,7 @@ function deploy_commands(){
 	// privileged commands
 	cmd = new SlashCommandBuilder().setName('eggspell').setDescription("Ban a user from submitting entries.")
 				.addUserOption(option => option.setName('target').setDescription("The user to eggspell").setRequired(true))
-                .addStringOption(option => option.setName('reason').setDescription("Why this user is excluded from participating."))
+                .addStringOption(option => option.setName('reason').setDescription("Why this user is excluded from participating."));
 	cmd.defaultPermission = false;
 	cmd = cmd.toJSON();
 	cmd.default_member_permissions = ban_permission_flag;
@@ -35,7 +44,7 @@ function deploy_commands(){
 	commands.push(cmd);
 
 	cmd = new SlashCommandBuilder().setName('eggscuse').setDescription("Lift a submission ban.")
-				.addUserOption(option => option.setName('target').setDescription("The user to eggscuse").setRequired(true))
+				.addUserOption(option => option.setName('target').setDescription("The user to eggscuse").setRequired(true));
 	cmd.defaultPermission = false;
 	cmd = cmd.toJSON();
 	cmd.default_member_permissions = ban_permission_flag;
@@ -60,21 +69,21 @@ function deploy_commands(){
 							.setDescription("Delete all recorded submissions.")
                             .addStringOption(option => option.setName('confirmation')
                                                                 .setDescription("Type \"Delete everything please!\" to confirm.")
-                                                                .setRequired(true)))
+                                                                .setRequired(true)));
 	cmd.defaultPermission = false;
 	cmd = cmd.toJSON();
 	cmd.default_member_permissions = ban_permission_flag;
 	commands.push(cmd);
 						
 	// register them
-	const rest = new REST({ version: '9' }).setToken(token);
-	rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands })
+	const rest = new REST({ 'version': '9' }).setToken(token);
+	rest.put(Routes.applicationGuildCommands(clientId, guildId), { 'body': commands })
 		.then(() => console.log('Successfully registered application commands.'))
 		.catch(console.error);
 }
 
 function run(){
-	console.log('Starting')
+	console.log('Starting');
 	process.on('SIGINT', exit);
 	database.start(db_path);
 	deploy_commands();
@@ -106,7 +115,7 @@ async function create_csv(guildId){
     submissions.forEach(submission => {
         let datetime = new Date(submission['timestamp']).toISOString();
         csv_body = `${csv_body}"${submission['userId']}","${csvsafe(submission['userName'])}","${csvsafe(submission['url'])}","${datetime}","https://discord.com/channels/${guildId}/${submission_channel}/${submission['messageId']}"\r\n`;
-    })
+    });
     
     let buf = Buffer.from(csv_body);
     return new MessageAttachment(buf, "submissions.csv");
@@ -129,19 +138,24 @@ async function cmd_egg(interaction){
         }).catch(async (error)=>{ 
             await interaction.reply({'content': `Failed to fetch you a fresh egg: ${error}`, 'ephemeral': true});
             console.error(`Failed to deliver egg: ${error}`);
-        })
+        });
 }
 
 async function cmd_submit(interaction){
 	
 	if (interaction.channelId != submission_channel){
-		await interaction.reply({'content': `Please submit your entry in <#${submission_channel}>!`, ephemeral: true});
+		await interaction.reply({'content': `Please submit your entry in <#${submission_channel}>!`, 'ephemeral': true});
 		return;
 	}
 
     if (await database.getSetting('submissions_open') !== 'true'){
-        await interaction.reply({'content': `Submissions are currently closed.`, ephemeral: true});
+        await interaction.reply({'content': `Submissions are currently closed.`, 'ephemeral': true});
 		return;
+    }
+
+    if (interaction.member.roles.cache.has(eggspell_role)){
+        await interaction.reply({'content': `You have been excluded from participation. If you believe this is in error, contact the mods.`, 'ephemeral': true});
+        return;
     }
 
 	// Validate the submission URL
@@ -149,7 +163,7 @@ async function cmd_submit(interaction){
 	try {
 		new URL(url);
 	} catch (e) {
-		interaction.reply({'content': "Your submission must be a valid url to a video hosting website.", ephemeral: true});
+		interaction.reply({'content': "Your submission must be a valid url to a video hosting website.", 'ephemeral': true});
 		return;
 	}
 
@@ -161,19 +175,30 @@ async function cmd_submit(interaction){
 		console.error(error);
 		await interaction.deleteReply();
 		await interaction.followUp({'content': "Failed to record your submission due to a database error, please try again. 😔", 'ephemeral': true});
+        return;
 	});
+    
+    await message.react('🥚');
+    await interaction.member.roles.add(contestant_role, "User submitted a contest entry.");
 }
 
 async function cmd_eggspell(interaction){
+    interaction.deferReply({'ephemeral': true});
+
 	let member = await interaction.options.getMember('target');
     let reason = await interaction.options.getString('reason');
+    
     if(!reason){
         reason = "No reason given.";
     }
-
-    await member.roles.add(eggspell_role, `${interaction.member.displayName}: ${reason}`);
-	await interaction.reply({'content': 
-        `<@${member.id}> is eggscluded from participation. To remove their submission (if any), delete the corresponding message in <#${submission_channel}>.`,
+    
+    reason = `${interaction.member.displayName}: ${reason}`;
+    await member.roles.add(eggspell_role, reason);
+    await member.roles.remove(contestant_role, reason);
+    let messageId = await database.removeByUser(member.id);
+    await interaction.channel.messages.delete(messageId);
+	await interaction.followUp({'content': 
+        `<@${member.id}> is eggscluded from participation, and their submission has been removed, if any.`,
         'ephemeral': true});
 }
 
@@ -194,7 +219,7 @@ async function cmd_submissions_close(interaction){
 }
 
 async function cmd_submissions_clear(interaction){
-    let confirmation = await interaction.options.getString('confirmation')
+    let confirmation = await interaction.options.getString('confirmation');
     if (confirmation !== "Delete everything please!") {
         await interaction.reply({'content': "Incorrect confirmation. Have an eggcellent day.", 'ephemeral': true});
         return;
@@ -268,12 +293,85 @@ client.on('interactionCreate', async interaction => {
 				}
 				break;
 			default:
-				interaction.reply({'content': "This command is not implemented (yet).", ephemeral: true});
+				interaction.reply({'content': "This command is not implemented (yet).", 'ephemeral': true});
 		}
 	}catch (reason) {
 		console.error(`Interaction command crashed: ${reason}`);
 	}
 	
+});
+
+client.on('messageCreate', async message => {
+    if(message.channelId != submission_channel){
+        return;
+    }
+
+    if (message.partial) {
+		try {
+			await message.fetch();
+		} catch (error) {
+			console.error('Something went wrong when fetching message for create event:', error);
+			return;
+		}
+	}
+
+    if(message.author.id != client.user.id){
+        await message.delete();
+    }
+});
+
+client.on('messageDelete', async message => {
+    if(message.channelId != submission_channel){
+        return;
+    }
+    
+    let userId = await database.removeByMessage(message.id);
+    if(!userId){
+        return;
+    }
+
+    try{
+        let user = await message.guild.members.fetch(userId);
+        await user.roles.remove(contestant_role, "Submission deleted");
+    }catch{
+        return;
+    }
+});
+
+client.on('messageReactionAdd', async reaction => { // todo
+	if (reaction.partial) {
+		try {
+			await reaction.fetch();
+		} catch (error) {
+			console.error('Something went wrong when fetching message for react count:', error);
+			return;
+		}
+	}
+
+    if (reaction.emoji.toString() != vote_emoji){
+        console.log(`not an ${vote_emoji}, but a ${reaction.emoji}`);
+        return;
+    }
+    
+    console.log(`channel: ${reaction.message.channelId} message: ${reaction.message.id} eggcount: ${reaction.count}`);
+});
+
+client.on('messageReactionRemove', async reaction => { 
+    if (reaction.partial) {
+		try {
+			await reaction.fetch();
+		} catch (error) {
+			console.error('Something went wrong when fetching message for react count:', error);
+			return;
+		}
+	}
+
+    if (reaction.emoji.toString() != vote_emoji){
+        console.log(`not an ${vote_emoji}, but a ${reaction.emoji}`);
+        return;
+    }
+    
+    console.log(`channel: ${reaction.message.channelId} message: ${reaction.message.id} eggcount: ${reaction.count}`);
 });
 
 

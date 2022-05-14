@@ -53,13 +53,25 @@ module.exports = class Database {
     }
 
     async removeByUser(userId){
-        let query = "DELETE FROM submissions WHERE `userId`=?;";
-        await run(this.db, query, [userId]);
+        let result;
+        await get(this.db, "SELECT `messageId` FROM `submissions` WHERE `userId` = ?", [userId]).then(async row => {
+            if (row) {
+                await run(this.db, "DELETE FROM submissions WHERE `userId`=?;", [userId]);
+                result = row.messageId;
+            }
+        });
+        return result;
     }
 
     async removeByMessage(messageId){
-        let query = "DELETE FROM submissions WHERE `messageId`=?;";
-        await run(this.db, query, [messageId]);
+        let result;
+        await get(this.db, "SELECT `userId` FROM `submissions` WHERE `messageId` = ?", [messageId]).then(async row => {
+            if (row) {
+                await run(this.db, "DELETE FROM submissions WHERE `messageId`=?;", [messageId]);
+                result = row.userId;
+            }
+        });
+        return result;
     }
 
     async getSubmissions(){
@@ -69,7 +81,7 @@ module.exports = class Database {
             if (rows) {
                 rows.forEach(row => {
                     result.push(row);
-                })
+                });
             }
         });
         return result;
@@ -79,7 +91,7 @@ module.exports = class Database {
         let query = "DELETE FROM submissions;";
         await run(this.db, query);
     }
-}
+};
 
 //Run a query without data output
 function run(db, query, params = []) { // async compatible wrapper around the old style callback from sqlite
