@@ -191,7 +191,11 @@ async function cmd_submit(interaction){
 
 	await interaction.deferReply(); // In case the database call takes more than 3 seconds, which could happen when we're queued up
 
-	//todo remove existing submission if any
+	// Remove old submissions if any
+	let messageId = await database.removeByUser(interaction.member.id);
+	if(messageId){
+		await interaction.channel.messages.delete(messageId);
+	}
 
 	// Store the submission and thank the user
 	let message = await interaction.followUp({'content': url}); // todo include randomised pun in the message
@@ -224,7 +228,9 @@ async function cmd_eggspell(interaction){
     await member.roles.add(eggspell_role, reason);
     await member.roles.remove(contestant_role, reason);
     let messageId = await database.removeByUser(member.id);
-    await interaction.channel.messages.delete(messageId);
+	if(messageId){
+		await interaction.channel.messages.delete(messageId);
+	}
 	await interaction.followUp({'content': 
         `<@${member.id}> is eggscluded from participation, and their submission has been removed, if any.`,
         'ephemeral': true});
