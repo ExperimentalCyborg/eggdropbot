@@ -11,7 +11,17 @@ const { Routes } = require('discord-api-types/v9');
 
 // Project resources
 const Database = require('./database.js');
-const { db_path, clientId, guildId, token, unsplash_key, submission_channel, eggspell_role, contestant_role, vote_emoji } = require('./config.json');
+const { 
+	db_path, 
+	clientId, 
+	guildId, 
+	token, 
+	unsplash_key, 
+	submission_channel, 
+	eggspell_role, 
+	contestant_role, 
+	vote_emoji 
+} = require('./config.json');
 
 // Global constants
 const database = new Database();
@@ -22,6 +32,7 @@ const client = new Client({
 
 // === CORE ===
 
+// Register guild slash commands with Discord
 function deploy_commands(){
 	const ban_permission_flag = Permissions.FLAGS.KICK_MEMBERS.toString();
 	let commands = [];
@@ -29,14 +40,18 @@ function deploy_commands(){
 
 	// public commands
 	commands.push(new SlashCommandBuilder().setName('submit').setDescription("Submit your egg drop challenge entry.")
-		.addStringOption(option => option.setName('url').setDescription("Link to your submission video").setRequired(true)).toJSON());
+		.addStringOption(option => option.setName('url').setDescription("Link to your submission video")
+			.setRequired(true)).toJSON());
 	commands.push(new SlashCommandBuilder().setName('egg').setDescription("A nice egg in this trying time.").toJSON());
-	commands.push(new SlashCommandBuilder().setName('ping').setDescription("Check if i'm still alive and healthy.").toJSON());
+	commands.push(new SlashCommandBuilder().setName('ping').setDescription("Check if i'm still alive and healthy.")
+		.toJSON());
 
 	// privileged commands
 	cmd = new SlashCommandBuilder().setName('eggspell').setDescription("Ban a user from submitting entries.")
-				.addUserOption(option => option.setName('target').setDescription("The user to eggspell").setRequired(true))
-                .addStringOption(option => option.setName('reason').setDescription("Why this user is excluded from participating."));
+				.addUserOption(option => option.setName('target').setDescription("The user to eggspell")
+					.setRequired(true))
+                .addStringOption(option => option.setName('reason')
+					.setDescription("Why this user is excluded from participating."));
 	cmd.defaultPermission = false;
 	cmd = cmd.toJSON();
 	cmd.default_member_permissions = ban_permission_flag;
@@ -44,7 +59,8 @@ function deploy_commands(){
 	commands.push(cmd);
 
 	cmd = new SlashCommandBuilder().setName('eggscuse').setDescription("Lift a submission ban.")
-				.addUserOption(option => option.setName('target').setDescription("The user to eggscuse").setRequired(true));
+				.addUserOption(option => option.setName('target').setDescription("The user to eggscuse")
+					.setRequired(true));
 	cmd.defaultPermission = false;
 	cmd = cmd.toJSON();
 	cmd.default_member_permissions = ban_permission_flag;
@@ -68,8 +84,8 @@ function deploy_commands(){
 							.setName('clear')
 							.setDescription("Delete all recorded submissions.")
                             .addStringOption(option => option.setName('confirmation')
-                                                                .setDescription("Type \"Delete everything please!\" to confirm.")
-                                                                .setRequired(true)));
+													.setDescription("Type \"Delete everything please!\" to confirm.")
+													.setRequired(true)));
 	cmd.defaultPermission = false;
 	cmd = cmd.toJSON();
 	cmd.default_member_permissions = ban_permission_flag;
@@ -101,6 +117,7 @@ function exit() {
 
 // === TOOLS ===
 
+// Create a CSV containing all recorded submissions and returns them as a MessageAttachment object
 async function create_csv(guildId){
     let submissions = await database.getSubmissions();
     if(submissions.length < 1){
@@ -130,11 +147,14 @@ async function cmd_ping(interaction){
 }
 
 async function cmd_egg(interaction){
+	// Replies with a link to a random image of an egg
 	let unsplash_request = `https://api.unsplash.com/photos/random?query=egg&client_id=${unsplash_key}`;
 	fetch(unsplash_request)
         .then(result => result.json())
         .then(async (reply) => {
-            await interaction.reply({'content': reply.urls.regular, 'ephemeral': interaction.channelId == submission_channel});
+            await interaction.reply({
+				'content': reply.urls.regular, 
+				'ephemeral': interaction.channelId == submission_channel});
         }).catch(async (error)=>{ 
             await interaction.reply({'content': `Failed to fetch you a fresh egg: ${error}`, 'ephemeral': true});
             console.error(`Failed to deliver egg: ${error}`);
@@ -154,7 +174,9 @@ async function cmd_submit(interaction){
     }
 
     if (interaction.member.roles.cache.has(eggspell_role)){
-        await interaction.reply({'content': `You have been excluded from participation. If you believe this is in error, contact the mods.`, 'ephemeral': true});
+        await interaction.reply({
+			'content': `You have been excluded from participation. If you believe this is in error, contact the mods.`, 
+			'ephemeral': true});
         return;
     }
 
@@ -169,12 +191,17 @@ async function cmd_submit(interaction){
 
 	await interaction.deferReply(); // In case the database call takes more than 3 seconds, which could happen when we're queued up
 
+	//todo remove existing submission if any
+
 	// Store the submission and thank the user
 	let message = await interaction.followUp({'content': url}); // todo include randomised pun in the message
-	await database.addSubmission(interaction.member.id, interaction.member.displayName, url, message.id, interaction.createdTimestamp).catch(async error => {
+	await database.addSubmission(interaction.member.id, interaction.member.displayName, url, message.id, interaction.createdTimestamp)
+	.catch(async error => {
 		console.error(error);
 		await interaction.deleteReply();
-		await interaction.followUp({'content': "Failed to record your submission due to a database error, please try again. 😔", 'ephemeral': true});
+		await interaction.followUp({
+			'content': "Failed to record your submission due to a database error, please try again. 😔", 
+			'ephemeral': true});
         return;
 	});
     
@@ -192,6 +219,7 @@ async function cmd_eggspell(interaction){
         reason = "No reason given.";
     }
     
+	// Assign the exclusion role, remove the participation role, delete from database and remove latest submission from the channel.
     reason = `${interaction.member.displayName}: ${reason}`;
     await member.roles.add(eggspell_role, reason);
     await member.roles.remove(contestant_role, reason);
@@ -220,7 +248,7 @@ async function cmd_submissions_close(interaction){
 
 async function cmd_submissions_clear(interaction){
     let confirmation = await interaction.options.getString('confirmation');
-    if (confirmation !== "Delete everything please!") {
+    if (confirmation !== "Delete everything please!") {  // This phrase needs to be identical to the one in the description of the command specification at the top of this document.
         await interaction.reply({'content': "Incorrect confirmation. Have an eggcellent day.", 'ephemeral': true});
         return;
     }
@@ -301,7 +329,7 @@ client.on('interactionCreate', async interaction => {
 	
 });
 
-client.on('messageCreate', async message => {
+client.on('messageCreate', async message => { // Remove all messages that aren't posted by me from the submission channel.
     if(message.channelId != submission_channel){
         return;
     }
@@ -320,7 +348,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-client.on('messageDelete', async message => {
+client.on('messageDelete', async message => { // When a user's latest submission gets deleted, also remove the entry from the database.
     if(message.channelId != submission_channel){
         return;
     }
@@ -356,7 +384,7 @@ client.on('messageReactionAdd', async reaction => { // todo
     console.log(`channel: ${reaction.message.channelId} message: ${reaction.message.id} eggcount: ${reaction.count}`);
 });
 
-client.on('messageReactionRemove', async reaction => { 
+client.on('messageReactionRemove', async reaction => { // todo
     if (reaction.partial) {
 		try {
 			await reaction.fetch();

@@ -52,7 +52,7 @@ module.exports = class Database {
         await run(this.db, query, [userId, userName, url, messageId, timestamp]);
     }
 
-    async removeByUser(userId){
+    async removeByUser(userId){ // returns message associated with the last submission
         let result;
         await get(this.db, "SELECT `messageId` FROM `submissions` WHERE `userId` = ?", [userId]).then(async row => {
             if (row) {
@@ -63,7 +63,7 @@ module.exports = class Database {
         return result;
     }
 
-    async removeByMessage(messageId){
+    async removeByMessage(messageId){ // returns userId associated with the submission
         let result;
         await get(this.db, "SELECT `userId` FROM `submissions` WHERE `messageId` = ?", [messageId]).then(async row => {
             if (row) {
@@ -74,7 +74,7 @@ module.exports = class Database {
         return result;
     }
 
-    async getSubmissions(){
+    async getSubmissions(){ // returns a list of objects
         let result = [];
         let query = "SELECT * FROM `submissions`;";
         await all(this.db, query).then(async rows => {
