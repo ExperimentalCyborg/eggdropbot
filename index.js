@@ -1,10 +1,14 @@
-const { Client, Intents, Permissions } = require('discord.js');
+const { Buffer } = require('node:buffer');
+const { Client, Intents, Permissions, MessageAttachment} = require('discord.js');
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord-api-types/v9');
-const { clientId, guildId, token, unsplash_key, submission_channel, eggspell_role, contestant_role } = require('./config.json');
+const Database = require('./database.js');
+const { db_path, clientId, guildId, token, unsplash_key, submission_channel, eggspell_role, contestant_role } = require('./config.json');
 
 const client = new Client({ intents: [Intents.FLAGS.GUILDS] });
+const database = new Database();
+
 
 
 // === CORE ===
@@ -12,6 +16,7 @@ const client = new Client({ intents: [Intents.FLAGS.GUILDS] });
 function deploy_commands(){
 	const ban_permission_flag = Permissions.FLAGS.KICK_MEMBERS.toString();
 	let commands = [];
+	let cmd;
 
 	// public commands
 	commands.push(new SlashCommandBuilder().setName('submit').setDescription("Submit your egg drop challenge entry.")
@@ -22,6 +27,7 @@ function deploy_commands(){
 	// privileged commands
 	cmd = new SlashCommandBuilder().setName('eggspell').setDescription("Ban a user from submitting entries.")
 				.addUserOption(option => option.setName('target').setDescription("The user to eggspell").setRequired(true))
+                .addStringOption(option => option.setName('reason').setDescription("Why this user is excluded from participating."))
 	cmd.defaultPermission = false;
 	cmd = cmd.toJSON();
 	cmd.default_member_permissions = ban_permission_flag;
@@ -51,7 +57,10 @@ function deploy_commands(){
 					.addSubcommand(subcommand =>
 						subcommand
 							.setName('clear')
-							.setDescription("Delete all recorded submissions. Requires confirmation."))
+							.setDescription("Delete all recorded submissions.")
+                            .addStringOption(option => option.setName('confirmation')
+                                                                .setDescription("Type \"Delete everything please!\" to confirm.")
+                                                                .setRequired(true)))
 	cmd.defaultPermission = false;
 	cmd = cmd.toJSON();
 	cmd.default_member_permissions = ban_permission_flag;
@@ -67,6 +76,7 @@ function deploy_commands(){
 function run(){
 	console.log('Starting')
 	process.on('SIGINT', exit);
+	database.start(db_path);
 	deploy_commands();
 	client.login(token);
 }
@@ -80,6 +90,29 @@ function exit() {
 }
 
 
+// === TOOLS ===
+
+async function create_csv(guildId){
+    let submissions = await database.getSubmissions();
+    if(submissions.length < 1){
+        return;
+    }
+
+    function csvsafe(text){
+        return text.replace('"',"'");
+    }
+    
+    let csv_body = '"User ID","User name","Submission URL","timestamp","Message link"\r\n';
+    submissions.forEach(submission => {
+        let datetime = new Date(submission['timestamp']).toISOString();
+        csv_body = `${csv_body}"${submission['userId']}","${csvsafe(submission['userName'])}","${csvsafe(submission['url'])}","${datetime}","https://discord.com/channels/${guildId}/${submission_channel}/${submission['messageId']}"\r\n`;
+    })
+    
+    let buf = Buffer.from(csv_body);
+    return new MessageAttachment(buf, "submissions.csv");
+}
+
+
 // == INTERACTIONS ===
 
 async function cmd_ping(interaction){
@@ -88,44 +121,105 @@ async function cmd_ping(interaction){
 }
 
 async function cmd_egg(interaction){
-	unsplash_request = `https://api.unsplash.com/photos/random?query=egg&client_id=${unsplash_key}`;
+	let unsplash_request = `https://api.unsplash.com/photos/random?query=egg&client_id=${unsplash_key}`;
 	fetch(unsplash_request)
-    	.then(result => result.json())
-    	.then(async (reply) => {
-			await interaction.reply({'content': reply.urls.regular, 'ephemeral': interaction.channelId == submission_channel});
-		}).catch(async (error)=>{ 
-			await interaction.reply({'content': `Failed to fetch you a fresh egg: ${error}`, 'ephemeral': true});
-			console.error(`Failed to deliver egg: ${error}`);
-		})
+        .then(result => result.json())
+        .then(async (reply) => {
+            await interaction.reply({'content': reply.urls.regular, 'ephemeral': interaction.channelId == submission_channel});
+        }).catch(async (error)=>{ 
+            await interaction.reply({'content': `Failed to fetch you a fresh egg: ${error}`, 'ephemeral': true});
+            console.error(`Failed to deliver egg: ${error}`);
+        })
 }
 
 async function cmd_submit(interaction){
-	await interaction.reply({'content': "cmd_submit", 'ephemeral': true});
+	
+	if (interaction.channelId != submission_channel){
+		await interaction.reply({'content': `Please submit your entry in <#${submission_channel}>!`, ephemeral: true});
+		return;
+	}
+
+    if (await database.getSetting('submissions_open') !== 'true'){
+        await interaction.reply({'content': `Submissions are currently closed.`, ephemeral: true});
+		return;
+    }
+
+	// Validate the submission URL
+	let url = interaction.options.getString('url');
+	try {
+		new URL(url);
+	} catch (e) {
+		interaction.reply({'content': "Your submission must be a valid url to a video hosting website.", ephemeral: true});
+		return;
+	}
+
+	await interaction.deferReply(); // In case the database call takes more than 3 seconds, which could happen when we're queued up
+
+	// Store the submission and thank the user
+	let message = await interaction.followUp({'content': url}); // todo include randomised pun in the message
+	await database.addSubmission(interaction.member.id, interaction.member.displayName, url, message.id, interaction.createdTimestamp).catch(async error => {
+		console.error(error);
+		await interaction.deleteReply();
+		await interaction.followUp({'content': "Failed to record your submission due to a database error, please try again. 😔", 'ephemeral': true});
+	});
 }
 
 async function cmd_eggspell(interaction){
-	await interaction.reply({'content': "cmd_eggspell", 'ephemeral': true});
+	let member = await interaction.options.getMember('target');
+    let reason = await interaction.options.getString('reason');
+    if(!reason){
+        reason = "No reason given.";
+    }
+
+    await member.roles.add(eggspell_role, `${interaction.member.displayName}: ${reason}`);
+	await interaction.reply({'content': 
+        `<@${member.id}> is eggscluded from participation. To remove their submission (if any), delete the corresponding message in <#${submission_channel}>.`,
+        'ephemeral': true});
 }
 
 async function cmd_eggscuse(interaction){
-	await interaction.reply({'content': "cmd_eggscuse", 'ephemeral': true});
+    let member = await interaction.options.getMember('target');
+    member.roles.remove(eggspell_role, `${interaction.member.displayName}`);
+    await interaction.reply({'content': `<@${member.id}> can participate eggain.`, 'ephemeral': true});
 }
 
 async function cmd_submissions_open(interaction){
-	await interaction.reply({'content': "cmd_submissions_open", 'ephemeral': true});
+    await database.setSetting('submissions_open', 'true');
+	await interaction.reply({'content': "Submissions are now enabled!", 'ephemeral': true});
 }
 
 async function cmd_submissions_close(interaction){
-	await interaction.reply({'content': "cmd_submissions_close", 'ephemeral': true});
+	await database.setSetting('submissions_open', 'false');
+	await interaction.reply({'content': "Submissions are now disabled!", 'ephemeral': true});
 }
 
 async function cmd_submissions_clear(interaction){
-	await interaction.showModal()
-	await interaction.reply({'content': "cmd_submissions_clear", 'ephemeral': true});
+    let confirmation = await interaction.options.getString('confirmation')
+    if (confirmation !== "Delete everything please!") {
+        await interaction.reply({'content': "Incorrect confirmation. Have an eggcellent day.", 'ephemeral': true});
+        return;
+    }
+    
+    await interaction.deferReply();
+    let attachment = await create_csv(interaction.guildId);
+    await database.clearSubmissions();
+    if(!attachment){
+        await interaction.followUp({'content': "All submissions deleted from the database."});
+    }else{
+        await interaction.followUp({'content': "All submissions deleted from the database. Here's a copy, just in case.", 'files': [attachment]});
+    }
+	
 }
 
 async function cmd_submissions_download(interaction){
-	await interaction.reply({'content': "cmd_submissions_download", 'ephemeral': true});
+    await interaction.deferReply();
+    
+    let attachment = await create_csv(interaction.guildId);
+    if(!attachment){
+        await interaction.followUp({'content': "No submissions available."});
+    }else{
+        await interaction.followUp({'content': "There you go!", 'files': [attachment]});
+    }
 }
 
 
