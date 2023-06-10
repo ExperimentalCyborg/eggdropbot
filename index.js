@@ -340,20 +340,27 @@ client.on('interactionCreate', async interaction => {
 
 client.on('messageCreate', async message => { // Remove all messages that aren't posted by me from the submission channel.
     if(message.channelId != submission_channel){
-        return;
-    }
-
-    if (message.partial) {
-        try {
-            await message.fetch();
-        } catch (error) {
-            console.error('Something went wrong when fetching message for create event:', error);
-            return;
+        // If #crap-tank-ideas channel, apply the standard reactions
+        await message.react('771114266501578752');
+        await message.react('771114266455441428');
+        await message.react('🤷');
+        await message.react('772675960905793546');
+        await message.react('⭐');
+        
+    }else if(message.channelId == submission_channel){
+        // If #egg-submissions, remove messages from anyone but this bot
+        if (message.partial) {
+            try {
+                await message.fetch();
+            } catch (error) {
+                console.error('Something went wrong when fetching message for create event:', error);
+                return;
+            }
         }
-    }
 
-    if(message.author.id != client.user.id){
-        await message.delete();
+        if(message.author.id != client.user.id){
+            await message.delete();
+        }
     }
 });
 
