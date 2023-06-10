@@ -339,7 +339,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.on('messageCreate', async message => { // Remove all messages that aren't posted by me from the submission channel.
-    if(message.channelId != submission_channel){
+    if(message.channelId == '771078124162777098'){
         // If #crap-tank-ideas channel, apply the standard reactions
         await message.react('771114266501578752');
         await message.react('771114266455441428');
